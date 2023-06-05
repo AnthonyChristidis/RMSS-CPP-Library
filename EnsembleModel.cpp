@@ -45,6 +45,9 @@ EnsembleModel::EnsembleModel(arma::mat& x, arma::vec& y,
     subset_indices = subset_indices_candidate = arma::umat(p, n_models);
     active_samples = active_samples_candidate = arma::umat(n, n_models);
 
+    // Initialization of vectors for group losses
+    models_loss = models_loss_candidate = arma::vec(n_models);
+
     // Initialization of active subsets vectors
     subset_active = arma::uvec(p);
     subset_active_samples = arma::uvec(n);
@@ -79,6 +82,14 @@ void EnsembleModel::Set_Initial_Indices(arma::umat& subset_indices) {
 }
 void EnsembleModel::Set_Indices_Candidate(arma::umat& subset_indices_candidate) {
     this->subset_indices_candidate = subset_indices_candidate;
+}
+void EnsembleModel::Candidate_Search() {
+
+    Compute_Coef_Ensemble_Candidate();
+    Update_Final_Coef_Candidate();
+    Update_Models_Loss_Candidate();
+    Update_Ensemble_Loss_Candidate();
+    Update_Ensemble();
 }
 void EnsembleModel::Compute_Coef_Ensemble() {
 
@@ -121,9 +132,10 @@ void EnsembleModel::Compute_Coef(arma::uword& group) {
     // Computation of final coefficient based on active sets of predictors and samples
     arma::mat x_final = x_subset.submat(arma::find(new_trim == 0), arma::find(new_betas != 0));
     arma::mat x_final_t_x_final = x_final.t() * x_final;
+    new_betas(arma::find(new_betas != 0)) = arma::solve(x_final_t_x_final, arma::eye(arma::size(x_final_t_x_final)), arma::solve_opts::fast) * x_final.t() * y_sc(arma::find(new_trim == 0));
     coef_mat.col(group).zeros();
     group_vec(0) = group;
-    coef_mat.submat(arma::find(new_betas != 0), group_vec) = arma::solve(x_final_t_x_final, arma::eye(arma::size(x_final_t_x_final)), arma::solve_opts::fast) * x_final.t() * y_sc(arma::find(new_trim == 0));
+    coef_mat.submat(Get_Model_Subspace(group), group_vec) = new_betas;
 
     // Updating subset indices for the group
     Update_Subset_Indices(group);
@@ -162,9 +174,10 @@ void EnsembleModel::Compute_Coef_Candidate(arma::uword& group) {
     // Computation of final coefficient based on active sets of predictors and samples
     arma::mat x_final = x_subset.submat(arma::find(new_trim == 0), arma::find(new_betas != 0));
     arma::mat x_final_t_x_final = x_final.t() * x_final;
+    new_betas(arma::find(new_betas != 0)) = arma::solve(x_final_t_x_final, arma::eye(arma::size(x_final_t_x_final)), arma::solve_opts::fast) * x_final.t() * y_sc(arma::find(new_trim == 0));
     coef_mat_candidate.col(group).zeros();
     group_vec(0) = group;
-    coef_mat_candidate.submat(arma::find(new_betas != 0), group_vec) = arma::solve(x_final_t_x_final, arma::eye(arma::size(x_final_t_x_final)), arma::solve_opts::fast) * x_final.t() * y_sc(arma::find(new_trim == 0));
+    coef_mat_candidate.submat(Get_Model_Subspace_Candidate(group), group_vec) = new_betas;
 
     // Updating subset indices for the group
     Update_Subset_Indices_Candidate(group);
@@ -222,13 +235,49 @@ void EnsembleModel::Update_Final_Coef_Candidate() {
     for (arma::uword group = 0; group < n_models; group++)
         final_intercept_candidate(group) = med_y - arma::as_scalar((final_coef_candidate.col(group).t() * med_x_ensemble.col(group)));
 }
+void EnsembleModel::Update_Models_Loss() {
+
+    for(arma::uword group = 0; group < n_models; group++)
+        models_loss(group) = arma::mean(arma::square(y - final_intercept(group) - x * final_coef.col(group)));
+}
+void EnsembleModel::Update_Models_Loss_Candidate() {
+
+    for (arma::uword group = 0; group < n_models; group++)
+        models_loss_candidate(group) = arma::mean(arma::square(y - final_intercept_candidate(group) - x * final_coef_candidate.col(group)));
+}
 void EnsembleModel::Update_Ensemble_Loss() {
 
-    ensemble_loss = arma::mean(arma::square(y - arma::mean(final_intercept) - arma::mean(x * final_coef, 1)));
+    if (u == n_models) {
+
+        arma::uword optimal_model = models_loss.index_min();
+        for (arma::uword group = 0; group < n_models; group++) {
+
+            subset_indices.col(group) = subset_indices.col(optimal_model);
+            active_samples.col(group) = active_samples.col(optimal_model);
+            final_intercept(group) = final_intercept(optimal_model);
+            final_coef.col(group) = final_coef.col(optimal_model);
+            models_loss(group) = models_loss(optimal_model);
+        }
+    }
+
+    ensemble_loss = arma::accu(models_loss);
 }
 void EnsembleModel::Update_Ensemble_Loss_Candidate() {
 
-    ensemble_loss_candidate = arma::mean(arma::square(y - arma::mean(final_intercept_candidate) - arma::mean(x * final_coef_candidate, 1)));
+    if (u == n_models) {
+
+        arma::uword optimal_model = models_loss.index_min();
+        for (arma::uword group = 0; group < n_models; group++) {
+
+            subset_indices_candidate.col(group) = subset_indices_candidate.col(optimal_model);
+            active_samples_candidate.col(group) = active_samples_candidate.col(optimal_model);
+            final_intercept_candidate(group) = final_intercept_candidate(optimal_model);
+            final_coef_candidate.col(group) = final_coef_candidate.col(optimal_model);
+            models_loss_candidate(group) = models_loss_candidate(optimal_model);
+        }
+    }
+
+    ensemble_loss_candidate = arma::accu(models_loss_candidate);
 }
 void EnsembleModel::Update_Ensemble() {
 
@@ -256,6 +305,9 @@ arma::umat EnsembleModel::Get_Model_Subspace_Ensemble() {
 arma::umat EnsembleModel::Get_Model_Subspace_Ensemble_Candidate() {
     return subset_indices_candidate;
 }
+arma::umat EnsembleModel::Get_Active_Samples() {
+    return active_samples;
+}
 arma::vec EnsembleModel::Get_Final_Intercepts() {
     return final_intercept;
 }
@@ -265,7 +317,16 @@ arma::mat EnsembleModel::Get_Final_Coef() {
 double EnsembleModel::Get_Ensemble_Loss() {
     return ensemble_loss;
 }
-double EnsembleModel::Prediction_Loss(arma::mat& x_test, arma::vec& y_test) {
+arma::vec EnsembleModel::Prediction_Residuals_Ensemble(arma::mat& x_test, arma::vec& y_test) {
 
-    return arma::mean(arma::square(y_test - arma::mean(x_test * final_coef, 1)));
+    return arma::square(y_test - arma::mean(final_intercept) - arma::mean(x_test * final_coef, 1));
+}
+arma::vec EnsembleModel::Prediction_Residuals_Models(arma::mat& x_test, arma::vec& y_test) {
+
+    arma::vec prediction_residuals = arma::zeros(y_test.n_elem);
+    for (arma::uword group = 0; group < n_models; group++) {
+
+        prediction_residuals += arma::square(y_test - final_intercept(group) - x_test * final_coef.col(group));
+    }
+    return prediction_residuals/n_models;
 }

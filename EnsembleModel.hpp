@@ -43,6 +43,7 @@ private:
     arma::uvec group_vec;
     arma::mat final_coef, final_coef_candidate;
     arma::vec final_intercept, final_intercept_candidate;
+    arma::vec models_loss, models_loss_candidate;
     double ensemble_loss, ensemble_loss_candidate;
 
     // (+) Functions that update the current state of the ensemble  
@@ -73,20 +74,23 @@ public:
     void Set_Max_Iter(arma::uword& max_iter);
 
     // (+) Functions that update the current state of the ensemble  
-    void Set_Initial_Indices(arma::umat& subset_indices);
-    void Set_Indices_Candidate(arma::umat& subset_indices_candidate);
+    void Set_Initial_Indices(arma::umat& subset_indices), Set_Indices_Candidate(arma::umat& subset_indices_candidate);
+    void Candidate_Search();
     void Compute_Coef_Ensemble(), Compute_Coef_Ensemble_Candidate();
     void Update_Final_Coef(), Update_Final_Coef_Candidate();
+    void Update_Models_Loss(), Update_Models_Loss_Candidate();
     void Update_Ensemble_Loss(), Update_Ensemble_Loss_Candidate();
     void Update_Ensemble();
 
     // (+) Functions that return the current state of the ensemble  
     arma::uvec Get_Model_Subspace(arma::uword& group), Get_Model_Subspace_Candidate(arma::uword& group);
     arma::umat Get_Model_Subspace_Ensemble(), Get_Model_Subspace_Ensemble_Candidate();
+    arma::umat Get_Active_Samples();
     arma::vec Get_Final_Intercepts();
     arma::mat Get_Final_Coef();
     double Get_Ensemble_Loss();
-    double Prediction_Loss(arma::mat& x_test, arma::vec& y_test);
+    arma::vec Prediction_Residuals_Ensemble(arma::mat& x_test, arma::vec& y_test);
+    arma::vec Prediction_Residuals_Models(arma::mat& x_test, arma::vec& y_test);
 };
 
 #endif // EnsembleModel_hpp
